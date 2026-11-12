@@ -6,6 +6,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from collections import defaultdict
 
+
 #create output directory
 os.makedirs("parquet_monthly", exist_ok=True)
 
@@ -33,8 +34,13 @@ def convert_to_parquet():
     #get list of csv files to process
     file_pattern = "flightlist_*.csv.gz"  
     file_list = sorted(glob.glob(file_pattern))
-    print(f"Found {len(file_list)} monthly files to process.")
 
+    if not file_list:
+        # Fallback check if files are nested in a data/ directory
+        file_pattern = "data/flightlist_*.csv.gz"
+        file_list = sorted(glob.glob(file_pattern))
+    print(f"Found {len(file_list)} monthly files to process.")
+    
     for file_idx, file_path in enumerate(file_list, 1):
         print(f"[{file_idx}/{len(file_list)}] Converting {os.path.basename(file_path)} to individual Parquet...")
         
@@ -43,13 +49,17 @@ def convert_to_parquet():
         
         #remove existing file if re-running
         if os.path.exists(output_parquet_path):
-            os.remove(output_parquet_path)
+            print(f"[{file_idx}/{len(file_list)}] Parquet already exists for {os.path.basename(file_path)}, skipping conversion.")
+            continue
 
         writer = None
         chunk_size = 50000
         
         #pass dtype=explicit_dtypes to guarantee identical schemas across all files
         for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False, dtype=explicit_dtypes):
+            for col, dt in explicit_dtypes.items():
+                if dt == 'str' and col in chunk.columns:
+                    chunk[col] = chunk[col].astype('string')
             table = pa.Table.from_pandas(chunk)
             
             if writer is None:
@@ -175,7 +185,7 @@ def run_benchmarks():
     #get time it takes to complete query
     csv_time_q2 = time.time() - start_csv_q2
 
-    print(f"Total processing time: {parquet_time:.4f} seconds\n")
+    print(f"Total processing time: {csv_time_q2:.4f} seconds\n")
     print("Total flights in summer for each year:")
     for year in sorted(summer_counts_by_year.keys()):
         print(f"  Summer {year}: {summer_counts_by_year[year]:,}")
@@ -197,5 +207,5 @@ def run_benchmarks():
     print("==================================================")
 
 if __name__ == "__main__":
-    #convert_to_parquet()
+    convert_to_parquet()
     run_benchmarks()
