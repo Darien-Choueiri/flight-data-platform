@@ -35,18 +35,11 @@ def convert_to_parquet(spark):
         df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
         df.write.parquet(output_parquet_path, mode="overwrite")
 
-def run_benchmarks(spark):
-    print("\n==================================================")
-    print("  CSV Vs. Parquet Benchmarks")
-    print("==================================================")
-    
-    parquet_path = "parquet_monthly/*.parquet"
-    csv_path = "flightlist_*.csv.gz"
-
-    # --------------------------------------------------
-    # 1. PARQUET BENCHMARK FOR QUERY 1
-    # --------------------------------------------------
-    print("\n--- Benchmarking Spark Parquet for Query 1 ---")
+# --------------------------------------------------
+# QUERY 1 FUNCTIONS
+# --------------------------------------------------
+def run_query_1_parquet(spark, parquet_path):
+    print("\n--- Benchmarking Parquet for Query 1 ---")
     start_parquet = time.time()
     
     df_parquet = spark.read.parquet(parquet_path)
@@ -55,7 +48,69 @@ def run_benchmarks(spark):
     top_parquet_dests = df_parquet.groupBy("destination").count().orderBy(F.desc("count")).limit(10).collect()
 
     parquet_time = time.time() - start_parquet
-    print(f"Spark Parquet Total Time: {parquet_time:.4f} seconds")
+    print(f"Parquet Query 1 Time: {parquet_time:.4f} seconds")   
+    return (top_parquet_dests, top_parquet_origins, parquet_time)
+
+def run_query_1_csv(spark, csv_path):
+    print("\n--- Benchmarking CSV.GZ for Query 1 ---")
+    start_csv = time.time()
+    
+    df_csv = spark.read.option("header", "true").option("inferSchema", "true").csv(csv_path)
+    
+    df_csv.groupBy("origin").count().orderBy(F.desc("count")).limit(10).collect()
+    df_csv.groupBy("destination").count().orderBy(F.desc("count")).limit(10).collect()
+
+    csv_time = time.time() - start_csv
+    print(f"CSV.GZ Query 1 Time: {csv_time:.4f} seconds")
+    
+    return csv_time
+
+# --------------------------------------------------
+# QUERY 2 FUNCTIONS
+# --------------------------------------------------
+def run_query_2_parquet(spark, parquet_path):
+    print("\n--- Benchmarking Parquet for Query 2 ---")
+    start_parquet_q2 = time.time()
+    
+    df_parquet = spark.read.parquet(parquet_path)
+    df_parquet_q2 = df_parquet.withColumn("year", F.substring(F.col("day"), 1, 4))
+    summer_counts_parquet = df_parquet_q2.groupBy("year").count().orderBy("year").collect()
+
+    parquet_time_q2 = time.time() - start_parquet_q2
+    print(f"Parquet Query 2 Time: {parquet_time_q2:.4f} seconds\n")   
+    return (summer_counts_parquet, parquet_time_q2)
+
+def run_query_2_csv(spark, csv_path):
+    print("\n--- Benchmarking CSV.GZ for Query 2 ---")
+    start_csv_q2 = time.time()
+    
+    df_csv = spark.read.option("header", "true").option("inferSchema", "true").csv(csv_path)
+    df_csv_q2 = df_csv.withColumn("year", F.substring(F.col("day"), 1, 4))
+    summer_counts_csv = df_csv_q2.groupBy("year").count().orderBy("year").collect()
+
+    csv_time_q2 = time.time() - start_csv_q2
+    print(f"CSV.GZ Query 2 Time: {csv_time_q2:.4f} seconds\n")
+    print("Total flights in summer for each year (CSV):")
+    for row in summer_counts_csv:
+        print(f"  Year {row['year']}: {row['count']:,}")
+        
+    return csv_time_q2
+
+# --------------------------------------------------
+# MASTER BENCHMARK COORDINATOR
+# --------------------------------------------------
+def run_benchmarks(spark):
+    print("\n==================================================")
+    print("  CSV Vs. Parquet Benchmarks")
+    print("==================================================")
+    
+    parquet_path = "parquet_monthly/*.parquet"
+    csv_path = "flightlist_*.csv.gz"
+
+    # Execute and capture function execution times
+    top_parquet_dests, top_parquet_origins, parquet_time = run_query_1_parquet(spark, parquet_path)
+    csv_time = run_query_1_csv(spark, csv_path)
+    
     print("Ten busiest origin airports:")
     for row in top_parquet_origins:
         print(f"  {row['origin']}: {row['count']}")
@@ -63,52 +118,16 @@ def run_benchmarks(spark):
     for row in top_parquet_dests:
         print(f"  {row['destination']}: {row['count']}")
 
-    # --------------------------------------------------
-    # 2. CSV.GZ BENCHMARK FOR QUERY 1
-    # --------------------------------------------------
-    print("\n--- Benchmarking Spark CSV.GZ for Query 1 ---")
-    start_csv = time.time()
-    
-    df_csv = spark.read.option("header", "true").option("inferSchema", "true").csv(csv_path)
-    
-    top_csv_origins = df_csv.groupBy("origin").count().orderBy(F.desc("count")).limit(10).collect()
-    top_csv_dests = df_csv.groupBy("destination").count().orderBy(F.desc("count")).limit(10).collect()
+    summer_counts_parquet, parquet_time_q2 = run_query_2_parquet(spark, parquet_path)
 
-    csv_time = time.time() - start_csv
-    print(f"CSV.GZ Total Time: {csv_time:.4f} seconds")
-
-    # --------------------------------------------------
-    # 3. PARQUET BENCHMARK FOR QUERY 2
-    # --------------------------------------------------
-    print("\n--- Benchmarking Spark Parquet for Query 2 ---")
-    start_parquet_q2 = time.time()
-    
-    df_parquet_q2 = df_parquet.withColumn("year", F.substring(F.col("day"), 1, 4))
-    summer_counts_parquet = df_parquet_q2.groupBy("year").count().orderBy("year").collect()
-
-    parquet_time_q2 = time.time() - start_parquet_q2
-    print(f"Total processing time: {parquet_time_q2:.4f} seconds\n")
     print("Total flights in summer for each year (Parquet):")
     for row in summer_counts_parquet:
         print(f"  Year {row['year']}: {row['count']:,}")
 
-    # --------------------------------------------------
-    # 4. CSV.GZ BENCHMARK FOR QUERY 2
-    # --------------------------------------------------
-    print("\n--- Benchmarking Spark CSV.GZ for Query 2 ---")
-    start_csv_q2 = time.time()
-    
-    df_csv_q2 = df_csv.withColumn("year", F.substring(F.col("day"), 1, 4))
-    summer_counts_csv = df_csv_q2.groupBy("year").count().orderBy("year").collect()
-
-    csv_time_q2 = time.time() - start_csv_q2
-    print(f"Total processing time: {csv_time_q2:.4f} seconds\n")
-    print("Total flights in summer for each year (CSV):")
-    for row in summer_counts_csv:
-        print(f"  Year {row['year']}: {row['count']:,}")
+    csv_time_q2 = run_query_2_csv(spark, csv_path)
 
     # --------------------------------------------------
-    # 5. STORAGE & RUNTIME REPORT
+    # STORAGE & RUNTIME REPORT
     # --------------------------------------------------
     parquet_files = glob.glob("parquet_monthly/*.parquet")
     csv_files = glob.glob("flightlist_*.csv.gz")
