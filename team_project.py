@@ -3,6 +3,32 @@ import os
 import time
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
+
+# https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.DataFrame.schema.html
+# We should explicitly define our schema, that way spark doesn't need to spend time infering it
+#   every time we have it infer, it needs to do a full pass of the data before processing anything
+SCHEMA = StructType([
+    StructField("callsign", StringType(), True),
+    StructField("number", StringType(), True),
+    StructField("icao24", StringType(), True),
+    StructField("registration", StringType(), True),
+    StructField("typecode", StringType(), True),
+    StructField("origin", StringType(), True),
+    StructField("destination", StringType(), True),
+    StructField("firstseen", TimestampType(), True),
+    StructField("lastseen", TimestampType(), True),
+    StructField("day", TimestampType(), True),
+    StructField("latitude_1", DoubleType(), True),
+    StructField("longitude_1", DoubleType(), True),
+    StructField("altitude_1", DoubleType(), True),
+    StructField("latitude_2", DoubleType(), True),
+    StructField("longitude_2", DoubleType(), True),
+    StructField("altitude_2", DoubleType(), True),
+])
+
+def read_csv(spark, path):
+    return spark.read.csv(path, header=True, schema=SCHEMA)
 
 def get_spark_session():
     return SparkSession.builder \
@@ -32,7 +58,8 @@ def convert_to_parquet(spark):
         print(f"[{file_idx}/{len(file_list)}] Converting {os.path.basename(file_path)} to Parquet...")
         
         # Read CSV with Spark and write out as Parquet
-        df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
+        #df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
+        df = read_csv(spark, file_path)
         df.write.parquet(output_parquet_path, mode="overwrite")
 
 # --------------------------------------------------
@@ -55,7 +82,8 @@ def run_query_1_csv(spark, csv_path):
     print("\n--- Benchmarking CSV.GZ for Query 1 ---")
     start_csv = time.time()
     
-    df_csv = spark.read.option("header", "true").option("inferSchema", "true").csv(csv_path)
+    #df_csv = spark.read.option("header", "true").option("inferSchema", "true").csv(csv_path)
+    df_csv = read_csv(spark, csv_path)
     
     df_csv.groupBy("origin").count().orderBy(F.desc("count")).limit(10).collect()
     df_csv.groupBy("destination").count().orderBy(F.desc("count")).limit(10).collect()
@@ -84,7 +112,9 @@ def run_query_2_csv(spark, csv_path):
     print("\n--- Benchmarking CSV.GZ for Query 2 ---")
     start_csv_q2 = time.time()
     
-    df_csv = spark.read.option("header", "true").option("inferSchema", "true").csv(csv_path)
+    #df_csv = spark.read.option("header", "true").option("inferSchema", "true").csv(csv_path)
+    df_csv = read_csv(spark, csv_path)
+
     df_csv_q2 = df_csv.withColumn("year", F.substring(F.col("day"), 1, 4))
     summer_counts_csv = df_csv_q2.groupBy("year").count().orderBy("year").collect()
 
