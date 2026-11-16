@@ -1,0 +1,5 @@
+flightlist_*
+parquet_monthly/
+java_opts.txt
+stream_counts.csv
+__pycache__/
