@@ -1,11 +1,12 @@
 import csv
 import heapq
 import json
+import time
 from confluent_kafka import Consumer, KafkaError
 
 TOPIC = "flights"
 KAFKA_SERVER = "kafka:19092"
-PRINT_EVERY = 50000
+PRINT_SECONDS = 5
 OUTPUT_FILE = "stream_counts.csv"
 
 consumer = Consumer({
@@ -20,6 +21,7 @@ received = 0
 skipped = 0
 latest_time = ""
 quiet_seconds = 0
+last_print = time.time()
 
 def print_summary():
     top = heapq.nlargest(5, counts.items(), key=lambda item: item[1])
@@ -64,8 +66,9 @@ try:
             key = (airport, hour)
             counts[key] = counts.get(key, 0) + 1
 
-        if received % PRINT_EVERY == 0:
+        if time.time() - last_print >= PRINT_SECONDS:
             print_summary()
+            last_print = time.time()
 
 except KeyboardInterrupt:
     pass
