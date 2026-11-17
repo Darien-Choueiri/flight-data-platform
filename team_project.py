@@ -1,6 +1,7 @@
 import glob
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
@@ -31,36 +32,42 @@ def read_csv(spark, path):
     return spark.read.csv(path, header=True, schema=SCHEMA)
 
 def get_spark_session():
-    return SparkSession.builder \
+    spark = SparkSession.builder \
         .appName("FlightDataPipelineSpark") \
         .config("spark.driver.memory", "3g") \
         .getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")  # hide Spark's internal INFO logs
+    return spark
+
+CONVERT_AT_ONCE = 4  # months converted at the same time (one .csv.gz file can only use one CPU core)
+
+def convert_one(spark, file_path):
+    name = os.path.basename(file_path)
+    output_parquet_path = os.path.join("parquet_monthly", name.replace(".csv.gz", ".parquet").replace(".csv", ".parquet"))
+
+    # Spark writes _SUCCESS only once a month is fully converted, so a half-finished folder gets redone
+    if os.path.exists(os.path.join(output_parquet_path, "_SUCCESS")):
+        print(f"Parquet already exists for {name}, skipping.")
+        return
+
+    print(f"Converting {name} to Parquet...")
+    start = time.time()
+    df = read_csv(spark, file_path)
+    df.write.parquet(output_parquet_path, mode="overwrite")
+    print(f"Finished {name} in {time.time() - start:.0f} s")
 
 def convert_to_parquet(spark):
     os.makedirs("parquet_monthly", exist_ok=True)
-    file_pattern = "flightlist_*.csv.gz"  
+    file_pattern = "data/flightlist_*.csv.gz"
     file_list = sorted(glob.glob(file_pattern))
 
     if not file_list:
-        file_pattern = "flight-data-platform/flightlist_*.csv.gz"
+        file_pattern = "flight-data-platform/data/flightlist_*.csv.gz"
         file_list = sorted(glob.glob(file_pattern))
 
-    print(f"Found {len(file_list)} monthly files to process.")
-    
-    for file_idx, file_path in enumerate(file_list, 1):
-        base_name = os.path.basename(file_path).replace(".csv.gz", ".parquet").replace(".csv", ".parquet")
-        output_parquet_path = os.path.join("parquet_monthly", base_name)
-        
-        if os.path.exists(output_parquet_path):
-            print(f"[{file_idx}/{len(file_list)}] Parquet already exists for {os.path.basename(file_path)}, skipping.")
-            continue
-        
-        print(f"[{file_idx}/{len(file_list)}] Converting {os.path.basename(file_path)} to Parquet...")
-        
-        # Read CSV with Spark and write out as Parquet
-        #df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
-        df = read_csv(spark, file_path)
-        df.write.parquet(output_parquet_path, mode="overwrite")
+    print(f"Found {len(file_list)} monthly files to process ({CONVERT_AT_ONCE} at a time).")
+    with ThreadPoolExecutor(max_workers=CONVERT_AT_ONCE) as pool:
+        list(pool.map(lambda f: convert_one(spark, f), file_list))
 
 # --------------------------------------------------
 # QUERY 1 FUNCTIONS
@@ -135,7 +142,7 @@ def run_benchmarks(spark):
     print("==================================================")
     
     parquet_path = "parquet_monthly/*.parquet"
-    csv_path = "flightlist_*.csv.gz"
+    csv_path = "data/flightlist_*.csv.gz"
 
     # Execute and capture function execution times
     top_parquet_dests, top_parquet_origins, parquet_time = run_query_1_parquet(spark, parquet_path)
@@ -159,8 +166,8 @@ def run_benchmarks(spark):
     # --------------------------------------------------
     # STORAGE & RUNTIME REPORT
     # --------------------------------------------------
-    parquet_files = glob.glob("parquet_monthly/*.parquet")
-    csv_files = glob.glob("flightlist_*.csv.gz")
+    parquet_files = glob.glob("parquet_monthly/*.parquet/*.parquet")  # the part files inside each month's folder
+    csv_files = glob.glob("data/flightlist_*.csv.gz")
     parquet_size_mb = sum(os.path.getsize(f) for f in parquet_files) / (1024 * 1024) if parquet_files else 0
     csv_size_mb = sum(os.path.getsize(f) for f in csv_files) / (1024 * 1024)
 

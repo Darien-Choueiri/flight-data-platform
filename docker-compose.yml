@@ -25,7 +25,8 @@ services:
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
       KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      # is Kafka's port open? (cheap: asking kafka-topics.sh instead starts a whole Java program every 5 s)
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
       interval: 5s
       timeout: 10s
       retries: 20
@@ -37,7 +38,8 @@ services:
       - ./:/app
     working_dir: /app
     mem_limit: 4g
-    command: /opt/spark/bin/spark-submit team_project.py
+    # --driver-memory is what actually gives Spark its memory (the default is only 1g)
+    command: /opt/spark/bin/spark-submit --driver-memory 2g team_project.py
 
   producer:
     build:
@@ -55,7 +57,7 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       PARQUET_FILES: "parquet_monthly/*.parquet"
-      SPEEDUP: 86400
+      SPEEDUP: 432000
 
   consumer:
     build:
@@ -68,5 +70,6 @@ services:
         condition: service_healthy
     command: python consumer.py
     stop_signal: SIGINT
+    stop_grace_period: 1m  # time to save the tally after Ctrl+C
     environment:
       PYTHONUNBUFFERED: 1
