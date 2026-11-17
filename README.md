@@ -2,7 +2,7 @@
 
 ## Before you start (once)
 1. Install Docker Desktop and open it. Wait until it says "Engine running".
-2. Put the data files (`flightlist_*.csv.gz`, one per month) in the `data/` folder. Leave them zipped.
+2. The data files (`flightlist_*.csv.gz`, one per month, 16 months) are already in the `data/` folder. Leave them zipped.
 
 ## Run it (from this folder)
 1. **Run everything:**
@@ -12,6 +12,8 @@
    - **Part 1 (batch):** Spark converts the CSV files to Parquet (`parquet_monthly/`), 4 months at a time,
      and answers the questions on both formats to compare their speed.
      Months that are already converted are skipped, so only the first run does the conversion.
+     This part is slow and Spark can print nothing for several minutes at a time. That is normal, it has not frozen.
+     The questions alone take about 10 minutes, and the first run also has to convert all 16 months before that.
    - **Part 2 (stream):** once Spark finishes, the producer replays the flights from those Parquet files into Kafka,
      one month after another, in takeoff (event time) order, sped up to about 5 days of flights per second.
      It reads the Parquet 50,000 flights at a time and packs 1,000 flights into each Kafka message.
@@ -32,3 +34,8 @@ In `docker-compose.yml`, under `producer` -> `environment`:
   `0` = no pacing, send as fast as possible.
 
 Both the producer and consumer print how long the stream took, in flights per second.
+
+## Other folders
+These are not part of the run:
+- `docs/`: notes on the data's schema.
+- `qa/`: data quality helpers (row counts and validation ideas).
