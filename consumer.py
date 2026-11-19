@@ -75,6 +75,10 @@ try:
 
         # one message = about 1,000 flights, stored as one list per column
         flights = json.loads(msg.value())
+        if flights.get("type") == "replay_complete":
+            save_counts()
+            print(f"Final tally saved to {OUTPUT_FILE}", flush=True)
+            break
         for airport, firstseen in zip(flights["origin"], flights["firstseen"]):
             if airport == "":
                 skipped += 1

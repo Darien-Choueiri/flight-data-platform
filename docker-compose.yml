@@ -25,8 +25,7 @@ services:
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
       KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
     healthcheck:
-      # is Kafka's port open? (cheap: asking kafka-topics.sh instead starts a whole Java program every 5 s)
-      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 5s
       timeout: 10s
       retries: 20
@@ -38,8 +37,12 @@ services:
       - ./:/app
     working_dir: /app
     mem_limit: 4g
-    # --driver-memory is what actually gives Spark its memory (the default is only 1g)
-    command: /opt/spark/bin/spark-submit --driver-memory 2g team_project.py
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        /opt/spark/bin/spark-submit team_project.py
+        /opt/spark/bin/spark-submit --driver-memory 2g /app/serving.py export
 
   producer:
     build:
@@ -57,7 +60,7 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       PARQUET_FILES: "parquet_monthly/*.parquet"
-      SPEEDUP: 432000
+      SPEEDUP: 86400
 
   consumer:
     build:
@@ -70,6 +73,41 @@ services:
         condition: service_healthy
     command: python consumer.py
     stop_signal: SIGINT
-    stop_grace_period: 1m  # time to save the tally after Ctrl+C
     environment:
       PYTHONUNBUFFERED: 1
+
+  postgres:
+    image: postgres:17
+    command: ["postgres", "-c", "max_wal_size=2GB"]
+    environment:
+      POSTGRES_DB: flight_data_platform
+      POSTGRES_USER: flight_user
+      POSTGRES_PASSWORD: flight_password
+    volumes:
+      - flight_postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "flight_user", "-d", "flight_data_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  
+  benchmark:
+    build:
+      context: ./database
+      dockerfile: benchmark.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      producer:
+        condition: service_completed_successfully
+      consumer:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: flight_password
+    volumes:
+      - ./:/app:ro
+    command: ["python3", "/app/serving.py", "benchmark"]
+
+volumes:
+  flight_postgres_data:
