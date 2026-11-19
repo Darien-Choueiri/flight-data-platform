@@ -84,7 +84,7 @@ try:
 
                 while True:
                     try:
-                        producer.produce(TOPIC, value=message, on_delivery=on_delivery)
+                        producer.produce(TOPIC, value=message, partition=0, on_delivery=on_delivery)
                         break
                     except BufferError:  # the send queue is full, let Kafka catch up
                         producer.poll(0.5)
@@ -96,9 +96,16 @@ try:
                 print(f"sent {flights_sent:,} flights | flight time {flights['firstseen'][-1][:16]}")
                 last_print = time.time()
 except KeyboardInterrupt:
-    print("Stopped early.")
-
+    raise SystemExit("Stopped early.")
+    
 producer.flush()
+producer.produce(
+    TOPIC,
+    value=json.dumps({"type": "replay_complete"}),
+    partition=0,
+)
+producer.flush()
+print("Replay completion marker sent.", flush=True)
 took = time.time() - began
 print(f"Done. Sent {flights_sent:,} flights in {messages_sent:,} messages | Kafka confirmed {delivered:,} messages | failed {failed:,}")
 print(f"Took {took:.1f} s ({flights_sent / took:,.0f} flights/s)")
