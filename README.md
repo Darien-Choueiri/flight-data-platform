@@ -17,9 +17,12 @@
    - **Part 2 (stream):** once Spark finishes, the producer replays the flights from those Parquet files into Kafka,
      one month after another, in takeoff (event time) order, sped up to about 5 days of flights per second.
      It reads the Parquet 50,000 flights at a time and packs 1,000 flights into each Kafka message.
-     The consumer keeps a running count of flights per origin airport per hour, prints the top 5 every 5 seconds,
-     and saves the full count to `stream_counts.csv`.
-   - When the producer prints `Done` and the consumer says the stream is quiet, press Ctrl+C to stop.
+     The consumer keeps a running count of flights per origin airport per hour, prints the top 5 every 5 seconds.
+     After the Kafka replay, producer sends completion marker and consumer saves the full count to `stream_counts.csv`.
+   - **Part 3 (serve):** The PostgreSQL benchmark (serving) is triggered after Kafka replay finishes. The benchmark loads the batch airport counts,
+     yearly flight totals, and streaming airport hour counts in PostgreSQL. The query is ran over five iterations with each result displayed and
+     reports its average execution time in milliseconds.
+   - When the benchmark is done running and displays `exited with code 0`, press Ctrl+C to stop.
 2. **Stop and reset:**
    ```
    docker compose down
@@ -34,6 +37,18 @@ In `docker-compose.yml`, under `producer` -> `environment`:
   `0` = no pacing, send as fast as possible.
 
 Both the producer and consumer print how long the stream took, in flights per second.
+
+## Run benchmark separately (after batching and streaming are completed)
+1. **Before you start:** Open Docker Desktop and run the commands from this folder. Make sure a completed pipeline run has generated these files:
+   - `batch_exports/batch_airport_counts.csv`
+   - `batch_exports/batch_year_counts.csv`
+   - `stream_counts.csv`
+2. **Start PostgreSQL and run the benchmark:**
+   ```bash
+   docker compose up -d --wait postgres
+   docker compose run --build --rm --no-deps benchmark
+   ```
+The benchmark loads the existing CSVs into PostgreSQL without restarting Spark or Kafka. It displays the results for all four queries on each of five runs and reports the average time for each query in milliseconds.
 
 ## Other folders
 These are not part of the run:
