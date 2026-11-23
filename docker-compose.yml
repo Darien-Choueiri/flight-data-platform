@@ -1,3 +1,9 @@
+x-flight-db: &flight-db
+  PGHOST: postgres
+  PGUSER: flight_user
+  PGDATABASE: flight_data_platform
+  PGPASSWORD: flight_password
+
 services:
 
   kafka:
@@ -33,6 +39,10 @@ services:
 
   spark:
     build: .
+    depends_on:
+      stream-schema:
+        condition: service_completed_successfully
+    environment: *flight-db
     volumes:
       - ./:/app
     working_dir: /app
@@ -44,6 +54,16 @@ services:
         /opt/spark/bin/spark-submit team_project.py
         /opt/spark/bin/spark-submit --driver-memory 2g /app/serving.py export
 
+  stream-schema:
+    image: postgres:17
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *flight-db
+    volumes:
+      - ./database/init.sql:/schema.sql:ro
+    command: ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-f", "/schema.sql"]
+
   producer:
     build:
       context: .
@@ -51,6 +71,8 @@ services:
     volumes:
       - ./:/app
     depends_on:
+      stream-schema:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       spark:
@@ -58,6 +80,7 @@ services:
     command: python producer.py
     stop_signal: SIGINT
     environment:
+      <<: *flight-db
       PYTHONUNBUFFERED: 1
       PARQUET_FILES: "parquet_monthly/*.parquet"
       SPEEDUP: 86400
@@ -69,11 +92,14 @@ services:
     volumes:
       - ./:/app
     depends_on:
+      stream-schema:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
     command: python consumer.py
     stop_signal: SIGINT
     environment:
+      <<: *flight-db
       PYTHONUNBUFFERED: 1
 
   postgres:

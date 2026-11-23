@@ -1,7 +1,7 @@
 import heapq
 import json
 import time
-
+import psycopg
 from confluent_kafka import Consumer, KafkaError
 
 TOPIC = "flights"
