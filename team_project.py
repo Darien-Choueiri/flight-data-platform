@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
+from qa.ingest_and_validation import ingest
+
 
 # https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.DataFrame.schema.html
 # We should explicitly define our schema, that way spark doesn't need to spend time infering it
@@ -28,6 +30,10 @@ SCHEMA = StructType([
     StructField("altitude_2", DoubleType(), True),
 ])
 
+FILE_PATH_IN = "data/flightlist_*.csv.gz"
+FILE_CLEAN_OUT = "parquet_monthly"
+FILE_REJECT_OUT = "parquet_rejects"
+
 def read_csv(spark, path):
     return spark.read.csv(path, header=True, schema=SCHEMA)
 
@@ -41,33 +47,33 @@ def get_spark_session():
 
 CONVERT_AT_ONCE = 4  # months converted at the same time (one .csv.gz file can only use one CPU core)
 
-def convert_one(spark, file_path):
-    name = os.path.basename(file_path)
-    output_parquet_path = os.path.join("parquet_monthly", name.replace(".csv.gz", ".parquet").replace(".csv", ".parquet"))
+# def convert_one(spark, file_path):
+#     name = os.path.basename(file_path)
+#     output_parquet_path = os.path.join("parquet_monthly", name.replace(".csv.gz", ".parquet").replace(".csv", ".parquet"))
 
-    # Spark writes _SUCCESS only once a month is fully converted, so a half-finished folder gets redone
-    if os.path.exists(os.path.join(output_parquet_path, "_SUCCESS")):
-        print(f"Parquet already exists for {name}, skipping.")
-        return
+#     # Spark writes _SUCCESS only once a month is fully converted, so a half-finished folder gets redone
+#     if os.path.exists(os.path.join(output_parquet_path, "_SUCCESS")):
+#         print(f"Parquet already exists for {name}, skipping.")
+#         return
 
-    print(f"Converting {name} to Parquet...")
-    start = time.time()
-    df = read_csv(spark, file_path)
-    df.write.parquet(output_parquet_path, mode="overwrite")
-    print(f"Finished {name} in {time.time() - start:.0f} s")
+#     print(f"Converting {name} to Parquet...")
+#     start = time.time()
+#     df = read_csv(spark, file_path)
+#     df.write.parquet(output_parquet_path, mode="overwrite")
+#     print(f"Finished {name} in {time.time() - start:.0f} s")
 
-def convert_to_parquet(spark):
-    os.makedirs("parquet_monthly", exist_ok=True)
-    file_pattern = "data/flightlist_*.csv.gz"
-    file_list = sorted(glob.glob(file_pattern))
+# def convert_to_parquet(spark):
+#     os.makedirs("parquet_monthly", exist_ok=True)
+#     file_pattern = "data/flightlist_*.csv.gz"
+#     file_list = sorted(glob.glob(file_pattern))
 
-    if not file_list:
-        file_pattern = "flight-data-platform/data/flightlist_*.csv.gz"
-        file_list = sorted(glob.glob(file_pattern))
+#     if not file_list:
+#         file_pattern = "flight-data-platform/data/flightlist_*.csv.gz"
+#         file_list = sorted(glob.glob(file_pattern))
 
-    print(f"Found {len(file_list)} monthly files to process ({CONVERT_AT_ONCE} at a time).")
-    with ThreadPoolExecutor(max_workers=CONVERT_AT_ONCE) as pool:
-        list(pool.map(lambda f: convert_one(spark, f), file_list))
+#     print(f"Found {len(file_list)} monthly files to process ({CONVERT_AT_ONCE} at a time).")
+#     with ThreadPoolExecutor(max_workers=CONVERT_AT_ONCE) as pool:
+#         list(pool.map(lambda f: convert_one(spark, f), file_list))
 
 # --------------------------------------------------
 # QUERY 1 FUNCTIONS
@@ -184,7 +190,9 @@ def run_benchmarks(spark):
 if __name__ == "__main__":
     spark = get_spark_session()
     try:
-        convert_to_parquet(spark)
+        
+        row_in, clean, rejct = ingest(spark, FILE_PATH_IN, FILE_CLEAN_OUT, FILE_REJECT_OUT)
         run_benchmarks(spark)
+        print(f"in: {row_in}:, | clean: {clean:,} | rejected: {rejct:,}")
     finally:
         spark.stop()
