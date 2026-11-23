@@ -10,6 +10,7 @@ PRINT_SECONDS = 5
 QUIET_SECONDS = 10
 OUTPUT_FILE = "stream_counts.csv"
 
+
 consumer = Consumer({
     "bootstrap.servers": KAFKA_SERVER,
     "group.id": "flight-tally",
@@ -76,6 +77,11 @@ try:
         # one message = about 1,000 flights, stored as one list per column
         flights = json.loads(msg.value())
         if flights.get("type") == "replay_complete":
+
+            # This is the producer in + flights out with an assert --> If this fails somethings wrong
+            print(f"producer read {flights['rows_in']:,} | consumer received {received:,}")
+            assert received == flights["rows_in"], f"missing {flights['rows_in'] - received:,} flights"
+            
             save_counts()
             print(f"Final tally saved to {OUTPUT_FILE}", flush=True)
             break

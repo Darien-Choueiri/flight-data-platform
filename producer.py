@@ -17,11 +17,18 @@ PRINT_SECONDS = 5
 
 TEXT_COLUMNS = ["callsign", "icao24", "origin", "destination"]
 
+# Global variable for checking row counts
+rows_in = 0
 
+# Had to change this to grab rows in; it does the same thing but just counts
+#   the row count from the parquet meta data
 def read_batches(month_path):
+    global rows_in
     # Spark saves each month as a folder of part files. Read them 50,000 flights at a time.
     for part in sorted(glob.glob(os.path.join(month_path, "*.parquet"))):
-        yield from pq.ParquetFile(part).iter_batches(batch_size=BATCH_ROWS, columns=TEXT_COLUMNS + ["firstseen"])
+        for batch in pq.ParquetFile(part).iter_batches(batch_size=BATCH_ROWS, columns=TEXT_COLUMNS + ["firstseen"]):
+            rows_in += batch.num_rows
+            yield batch
 
 
 months = sorted(glob.glob(PARQUET_FILES))
@@ -101,7 +108,8 @@ except KeyboardInterrupt:
 producer.flush()
 producer.produce(
     TOPIC,
-    value=json.dumps({"type": "replay_complete"}),
+    # Final send; we throw over flights sent and rows_in to compare in receiving on the consumer side
+    value=json.dumps({"type": "replay_complete", "rows_in": rows_in, "flights_sent": flights_sent}),
     partition=0,
 )
 producer.flush()
