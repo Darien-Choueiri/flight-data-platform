@@ -26,4 +26,12 @@ CREATE TABLE IF NOT EXISTS stream_airport_hour_counts (
     PRIMARY KEY (airport_code, hour_start)
 );
 
+--  Table that records last Kafka message whose counts the consumer successfully saved to Postgres, avoid dupes in case of crash --
+CREATE TABLE IF NOT EXISTS stream_replay_progress (
+    singleton boolean PRIMARY KEY CHECK (singleton),
+    replay_id uuid NOT NULL,
+    last_offset bigint NOT NULL,
+    complete boolean NOT NULL
+);
+
 COMMIT;
