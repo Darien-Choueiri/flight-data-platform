@@ -1,5 +1,6 @@
 flightlist_*
 parquet_monthly/
+parquet_rejects/
 java_opts.txt
 stream_counts.csv
 __pycache__/
