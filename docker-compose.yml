@@ -51,7 +51,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        /opt/spark/bin/spark-submit team_project.py
+        /opt/spark/bin/spark-submit --master 'local[4]' --driver-memory 2g team_project.py
         /opt/spark/bin/spark-submit --driver-memory 2g /app/serving.py export
 
   stream-schema:
