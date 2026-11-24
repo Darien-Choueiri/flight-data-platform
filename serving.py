@@ -1,19 +1,11 @@
-import csv
 import os
 import subprocess
 import sys
-from pathlib import Path
 from statistics import mean
 
 
-def write_csv(path, header, rows):
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow(header)
-        writer.writerows(rows)
-
-
 def export_batch_counts():
+    import psycopg
     from pyspark.sql import SparkSession
     from pyspark.sql import functions as F
 
@@ -21,8 +13,6 @@ def export_batch_counts():
 
     try:
         flights = spark.read.parquet("/app/parquet_monthly/*.parquet")
-        output_dir = Path("/app/batch_exports")
-        output_dir.mkdir(exist_ok=True)
 
         airport_rows = []
         for role in ("origin", "destination"):
@@ -39,16 +29,20 @@ def export_batch_counts():
             .collect()
         )
 
-        write_csv(
-            output_dir / "batch_airport_counts.csv",
-            ("airport_role", "airport_code", "flight_count"),
-            airport_rows,
-        )
-        write_csv(
-            output_dir / "batch_year_counts.csv",
-            ("flight_year", "flight_count"),
-            year_counts,
-        )
+        # Publish both summaries atomically after Spark finishes aggregating.
+        with psycopg.connect(connect_timeout=15) as db, db.cursor() as cursor:
+            cursor.execute("TRUNCATE batch_airport_counts, batch_year_counts")
+            with cursor.copy(
+                "COPY batch_airport_counts (airport_role, airport_code, flight_count) FROM STDIN"
+            ) as copy:
+                for row in airport_rows:
+                    copy.write_row(row)
+            with cursor.copy(
+                "COPY batch_year_counts (flight_year, flight_count) FROM STDIN"
+            ) as copy:
+                for row in year_counts:
+                    copy.write_row(tuple(row))
+        print(f"Published {len(airport_rows):,} airport totals and {len(year_counts)} yearly totals to PostgreSQL.", flush=True)
     finally:
         spark.stop()
 
@@ -68,7 +62,6 @@ def run_sql(filename, capture_output=False):
 
 def benchmark():
     os.environ["LC_ALL"] = "C"  # Keep psql timing output in English with decimal points.
-    run_sql("load_serving.sql")
 
     runs = []
     for run in range(1, 6):

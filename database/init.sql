@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS stream_airport_hour_counts (
     PRIMARY KEY (airport_code, hour_start)
 );
 
+CREATE INDEX IF NOT EXISTS stream_airport_hour_ranking
+ON stream_airport_hour_counts (flight_count DESC, airport_code, hour_start);
+
 --  Table that records last Kafka message whose counts the consumer successfully saved to Postgres, avoid dupes in case of crash --
 CREATE TABLE IF NOT EXISTS stream_replay_progress (
     singleton boolean PRIMARY KEY CHECK (singleton),
