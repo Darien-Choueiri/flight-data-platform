@@ -65,7 +65,7 @@ def rename_month_folders(out_dir):
 
 # https://community.databricks.com/t5/community-articles/handling-the-chaos-data-quality-strategies-with-pyspark/td-p/139249
 # --> Inspo
-def ingest(spark, src, clean, reject):
+def ingest(spark, src, clean, reject, max_reject=5.0):
 
 
     df = (spark.read
@@ -108,6 +108,8 @@ def ingest(spark, src, clean, reject):
 
     rows_in = tagged.count()
     print(f"{src}: {rows_in:,} rows in")
+
+    
  
     # Good rows --> If theres no reject reason / not null per row it gets written to parquet
     #   as clean
@@ -130,7 +132,18 @@ def ingest(spark, src, clean, reject):
     # Do the counts; assert more rows aren't going out than what came in
     rows_ok = count_rows(spark, f"{clean}/*.parquet")
     rows_bad = count_rows(spark, f"{reject}/*.parquet")
+
+    assert rows_in == rows_ok + rows_bad, f"lost {rows_in - rows_ok - rows_bad:,} rows"
+
+    # Puts up a warning if we reject more than 5% of rows
+    reject_pct = rows_bad / rows_in * 100 if rows_in else 0
+    if reject_pct > max_reject:
+        print(f"⚠️  ALERT: {reject_pct:.2f}% of rows rejected "
+              f"({rows_bad:,}/{rows_in:,}), threshold is {max_reject}%")
+
+
     spark.read.parquet(f"{reject}/*.parquet").groupBy("reject_reason").count().show(truncate=False)
+
  
     spark.read.parquet(reject).groupBy("reject_reason").count().show(truncate=False)
     return rows_in, rows_ok, rows_bad
