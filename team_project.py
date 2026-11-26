@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
-from qa.ingest_and_validation import ingest
+from qa.ingest_and_validation import ingest, reject_summary
 
 
 # https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.DataFrame.schema.html
@@ -194,5 +194,6 @@ if __name__ == "__main__":
         row_in, clean, rejct = ingest(spark, FILE_PATH_IN, FILE_CLEAN_OUT, FILE_REJECT_OUT)
         run_benchmarks(spark)
         print(f"in: {row_in}:, | clean: {clean:,} | rejected: {rejct:,}")
+        reject_summary(spark, FILE_REJECT_OUT)
     finally:
         spark.stop()

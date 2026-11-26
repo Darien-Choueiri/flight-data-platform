@@ -62,6 +62,10 @@ def rename_month_folders(out_dir):
         os.rename(d, target)
         open(os.path.join(target, "_SUCCESS"), "w").close()
 
+def reject_summary(spark, rejects):
+    df = spark.read.parquet(f"{rejects}/*.parquet")
+    df.groupBy("reject_reason").count().orderBy("count", ascending=False).show(truncate=False)
+
 
 # https://community.databricks.com/t5/community-articles/handling-the-chaos-data-quality-strategies-with-pyspark/td-p/139249
 # --> Inspo
