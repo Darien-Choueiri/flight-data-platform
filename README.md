@@ -64,7 +64,11 @@ At the end of Part 1, Spark prints how many rows came in, were kept and were rej
 If kept + rejected doesn't equal the rows that came in, the run stops with an error.
 If more than 5% of rows are rejected, it prints `⚠️ ALERT` but keeps going.
 
-## Test the bad-row checks (optional)
+## Test the bad-row checks (demo only)
+> **Note:** The `bad_rows/` folder is not included in this submission. Its test file was too large to submit,
+> so we deleted it. We did use it in our Project Video, and the steps below show how we ran it.
+> The bad-row checks themselves are still part of Part 1 and run on every file in `data/`.
+
 `bad_rows/flightlist_badtest.csv.gz` is a made-up file of 1,000,000 flights. Every row is broken on purpose,
 about 142,857 for each reason above, so none of them should be kept.
 1. Copy it into `data/` (Spark only reads files from there):
@@ -95,4 +99,4 @@ The benchmark loads the existing CSVs into PostgreSQL without restarting Spark o
 ## Other folders
 - `docs/`: notes on the data's schema.
 - `qa/`: the row checks used in Part 1 (`ingest_and_validation.py`) and a row-count helper (`counts.py`, not part of the run).
-- `bad_rows/`: a test file for the row checks (see above). Not part of a normal run.
+- `bad_rows/`: not included in this submission because it was too large. It held the test file for the row checks that we used in the Project Video (see above). Not part of a normal run.
