@@ -9,11 +9,12 @@
    ```
    docker compose up --build
    ```
-   - **Part 1 (batch):** Spark converts the CSV files to Parquet (`parquet_monthly/`), 4 months at a time,
-     and answers the questions on both formats to compare their speed.
-     Months that are already converted are skipped, so only the first run does the conversion.
+   - **Part 1 (batch):** Spark reads the CSV files and checks every row (see [Bad rows](#bad-rows)).
+     Good rows are saved as Parquet in `parquet_monthly/`, one folder per month. Bad rows are saved in `parquet_rejects/`.
+     Then it answers the questions on both formats to compare their speed.
+     The conversion is redone from scratch on every run.
      This part is slow and Spark can print nothing for several minutes at a time. That is normal, it has not frozen.
-     The questions alone take about 10 minutes, and the first run also has to convert all 16 months before that.
+     The questions alone take about 10 minutes, and converting all 16 months comes before that.
    - **Part 2 (stream):** once Spark finishes, the producer replays the flights from those Parquet files into Kafka,
      one month after another, in takeoff (event time) order, sped up to about 5 days of flights per second.
      It reads the Parquet 50,000 flights at a time and packs 1,000 flights into each Kafka message.
@@ -38,6 +39,47 @@ In `docker-compose.yml`, under `producer` -> `environment`:
 
 Both the producer and consumer print how long the stream took, in flights per second.
 
+## Bad rows
+While converting, Spark checks every row. A row is rejected if:
+
+| Reason | What's wrong |
+|---|---|
+| `unparseable` | The row can't be read, e.g. text where a number should be |
+| `missing_required` | `icao24`, `firstseen`, `lastseen` or `day` is empty |
+| `bad_icao24` | `icao24` isn't 6 hex characters |
+| `lastseen_before_firstseen` | The plane was last seen before it was first seen |
+| `bad_latitude` | A latitude is outside -90 to 90 |
+| `bad_longitude` | A longitude is outside -180 to 180 |
+| `bad_altitude` | An altitude is outside -500 to 20,000 m |
+
+The rules are checked in this order. A row that breaks more than one only gets the first reason.
+Empty coordinates and altitudes are allowed.
+
+Rejected rows go to `parquet_rejects/` with all their original columns, plus:
+- `reject_reason`: the rule from the table
+- `month`: the file the row came from
+- `_corrupt`: the original line (only filled in for `unparseable` rows)
+
+At the end of Part 1, Spark prints how many rows came in, were kept and were rejected, and a count for each reason.
+If kept + rejected doesn't equal the rows that came in, the run stops with an error.
+If more than 5% of rows are rejected, it prints `⚠️ ALERT` but keeps going.
+
+## Test the bad-row checks (optional)
+`bad_rows/flightlist_badtest.csv.gz` is a made-up file of 1,000,000 flights. Every row is broken on purpose,
+about 142,857 for each reason above, so none of them should be kept.
+1. Copy it into `data/` (Spark only reads files from there):
+   ```
+   cp bad_rows/flightlist_badtest.csv.gz data/
+   ```
+2. Run only Part 1:
+   ```
+   docker compose up --build spark
+   ```
+   When it shows `exited with code 0`, press Ctrl+C, then run `docker compose down`.
+3. In the output, every reason should have at least about 142,857 rows.
+   In `parquet_rejects/`, these rows have `month` = `flightlist_badtest`.
+4. Delete `data/flightlist_badtest.csv.gz` when you're done. The CSV side of the benchmark reads every file in `data/`, so while it's there the CSV numbers won't match the Parquet ones.
+
 ## Run benchmark separately (after batching and streaming are completed)
 1. **Before you start:** Open Docker Desktop and run the commands from this folder. Make sure a completed pipeline run has generated these files:
    - `batch_exports/batch_airport_counts.csv`
@@ -51,6 +93,6 @@ Both the producer and consumer print how long the stream took, in flights per se
 The benchmark loads the existing CSVs into PostgreSQL without restarting Spark or Kafka. It displays the results for all four queries on each of five runs and reports the average time for each query in milliseconds.
 
 ## Other folders
-These are not part of the run:
 - `docs/`: notes on the data's schema.
-- `qa/`: data quality helpers (row counts and validation ideas).
+- `qa/`: the row checks used in Part 1 (`ingest_and_validation.py`) and a row-count helper (`counts.py`, not part of the run).
+- `bad_rows/`: a test file for the row checks (see above). Not part of a normal run.
